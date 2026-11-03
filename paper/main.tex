@@ -1,0 +1,757 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[english]{babel}
+\usepackage{amsmath,amsthm,mathtools}
+\usepackage{newtxtext,newtxmath}
+\usepackage[margin=2.25cm]{geometry}
+\usepackage{booktabs,threeparttable,graphicx,array,tabularx}
+\usepackage{algorithm,algpseudocode,float}
+\usepackage{microtype}
+\usepackage[dvipsnames]{xcolor}
+\usepackage[colorlinks=true,linkcolor=MidnightBlue,citecolor=MidnightBlue,urlcolor=MidnightBlue]{hyperref}
+\usepackage{enumitem}
+\usepackage{caption}
+\captionsetup{font=small,labelfont=bf}
+\setlist[itemize]{topsep=2pt,itemsep=1pt,parsep=0pt,leftmargin=1.5em}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{5pt}
+\setcounter{secnumdepth}{3}
+\allowdisplaybreaks[1]
+\newtheorem{proposition}{Proposition}
+\newtheorem{lemma}{Lemma}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\Prob}{\mathbb{P}}
+\newcommand{\calM}{\mathcal{M}}
+\newcommand{\calR}{\mathcal{R}}
+\newcommand{\calS}{\mathcal{S}}
+\newcommand{\sub}{\subseteq}
+\newcommand{\one}{\mathbf{1}}
+\title{\textbf{Exact Information-Relaxation Branch-and-Bound\\for the Extended Oil Wildcatter Problem}\\[5pt]
+\large Preliminary methodological and computational draft}
+\author{Working draft --- authorship to be confirmed}
+\date{2 November 2026}
+
+\begin{document}
+\maketitle
+\vspace{-1em}
+\begin{abstract}
+We study the extended oil wildcatter problem, in which a decision maker selects a subset of costly geological tests and subsequently decides whether to drill based on the resulting reports. We formalize the problem as a finite-support, decision-dependent information-acquisition problem and specialize an exact information-relaxation branch-and-bound (IR-B\&B) framework to its binary terminal drilling decision. Conditional expected drilling profit admits an analytical maximization rule, yielding a compact evaluation oracle for each subset of tests. We provide valid node bounds, explain information reuse across branches, and report preliminary experiments on two families of instances, \emph{original} and \emph{informative}. On a core set of 80 instances, IR-B\&B certifies all 80 optima; the corrected CPLEX model certifies 104 solver runs over 61 distinct instances, with matching certified objective values. Ten additional informative instances at $M=10$ and $12$ are reported as optimal by IR-B\&B, without CPLEX observations at those sizes. The exact oil-specific implementation of branching and oracle caching remains to be cross-checked against the source code.
+\end{abstract}
+
+\section{Decision Programming framework}\label{sec:dp}
+An influence diagram is a directed acyclic graph with \emph{chance} nodes representing uncertain quantities, \emph{decision} nodes representing alternative actions, and \emph{value} nodes evaluating outcomes. Arcs into a chance node encode probabilistic conditioning, while arcs into a decision node encode the information available when that decision is made. A decision strategy therefore specifies an action for each observable information state, rather than prescribing only a single unconditional action.
+
+Decision Programming (DP) \cite{Salo2022} reformulates the expected-utility maximization problem of a finite-state influence diagram as a mixed-integer linear program (MILP). Binary variables represent local decisions conditioned on their information sets, and path variables account for contributions of complete paths through the diagram. This approach can accommodate limited-memory diagrams and constraints involving multiple nodes. Its main computational limitation is the potentially exponential number of paths, which grows as the product of the numbers of states of decision and chance nodes.
+
+Terho et al.\ \cite{Terho2026} propose Reformulated Decision Programming (RDP), aggregating path variables according to observable segments. The formulation replaces many path variables with observation-level variables and strengthens the resulting model by valid inequalities. The improvement can be substantial but does not remove exponential growth with the number of observed signals and decisions. Their extended oil wildcatter experiments provide a natural reference for assessing an alternative solution method.
+
+Here we distinguish the \emph{decision problem} from its MILP encoding: the physical objective is expected net profit under a nonanticipative drilling strategy. The comparator labeled \emph{Corrected} is a campaign-specific corrected RDP-type implementation solved with CPLEX. Its modifications relative to the published equations should be documented from source code before publication. {\color{BrickRed}\emph{[TODO: cite the corrected implementation and enumerate its model-level modifications.]}}
+
+
+\section{Problem description: extended oil wildcatter}\label{sec:problem}
+We consider the extended oil wildcatter influence diagram studied by
+Terho et al.~\cite[Section~4.3, Fig.~2 and Table~5]{Terho2026}.  A
+wildcatter must decide which of $M$ geological tests to commission
+before deciding whether to drill a well.  The chance node $O$ describes
+the actual oil content of the site, while $S$ describes latent geological
+features.  Both have the state space
+$S_O=S_S=\{\mathrm{dry},\mathrm{medium},\mathrm{wet}\}$.  The
+uncertainty is described by the prior $\Prob(s_O)$ and the conditional
+probabilities $\Prob(s_S\mid s_O)$.  The states $s_O$ and $s_S$ are
+realizations of chance nodes, not decision variables.
+
+Let $\calM:=\{1,\ldots,M\}$.  For each $i\in\calM$, a decision node
+$T_i$ determines whether test $i$ is commissioned, with
+$S_{T_i}=\{\mathrm{yes},\mathrm{no}\}$.  Its chance node $R_i$ has
+states $S_{R_i}=\{\mathrm{N/A},\mathrm{dry},\mathrm{medium},
+\mathrm{wet}\}$. The result $R_i=\mathrm{N/A}$ occurs with
+probability one when $T_i=\mathrm{no}$; otherwise, the test yields one
+of the three geological reports.  The conditional kernel
+$\Prob(s_{R_i}\mid s_S,s_{T_i})$ models the accuracy of that test.
+After all commissioned reports are available, the terminal decision
+node $D$ selects $s_D\in S_D=\{\mathrm{yes},\mathrm{no}\}$, where
+$\mathrm{yes}$ means drilling.  Importantly, the choices at all
+$T_i$ are made \emph{before} any reports are observed; the report-dependent
+choice is only the final drilling decision.
+
+The influence diagram contains value nodes $C_i$ for the cost of each
+test and a value node $U$ for the drilling payoff.  Denote by
+$c_i>0$ the cost of commissioning test $i$, by $k>0$ the drilling
+cost, and by $v_o$ the reward obtained from drilling when $O=o$;
+$v_{\mathrm{dry}}=0$.  In terms of the node-specific physical utility
+functions used in Decision Programming, these values are
+\begin{equation}\label{eq:localutil}
+ U^{\mathrm{phys}}_{C_i}(s_{T_i})
+     =-c_i\one\{s_{T_i}=\mathrm{yes}\},\qquad
+ U^{\mathrm{phys}}_U(s_O,s_D)
+     =\one\{s_D=\mathrm{yes}\}(v_{s_O}-k).
+\end{equation}
+Thus $U^{\mathrm{phys}}_U(s_O,\mathrm{no})=0$; neither
+commissioning tests nor declining to drill generates oil revenue.
+
+In the notation of the two reference articles, the parent or
+\emph{information} sets are
+\begin{equation}\label{eq:infosets}
+\begin{gathered}
+ I(O)=I(T_i)=\varnothing,\quad I(S)=\{O\},\quad
+ I(R_i)=\{S,T_i\},\\
+ I(C_i)=\{T_i\},\qquad
+ I(D)=\{R_1,\ldots,R_M\},\qquad
+ I(U)=\{O,D\}.
+\end{gathered}
+\end{equation}
+In particular, $D$ does not observe $O$ or $S$ directly.  A policy
+must therefore assign the same drilling action to all underlying
+states giving the same observed test-report vector.  The possibility
+that costly testing changes the optimal drilling choice is the
+potential value of information in this problem.
+
+\section{Notation and mathematical formulation}\label{sec:model}
+\subsection{Influence-diagram notation and probability model}\label{sec:notation}
+We follow the node-state and policy conventions of
+Salo et al.~\cite{Salo2022} and Terho et al.~\cite[Sections~2--3]{Terho2026}.
+Let $\mathcal C$, $\mathcal D$ and $\mathcal V$ denote the sets of
+chance, decision and value \emph{nodes}, respectively:
+\begin{equation}\label{eq:nodesets}
+ \mathcal C=\{O,S\}\cup\{R_i:i\in\calM\},\quad
+ \mathcal D=\{D\}\cup\{T_i:i\in\calM\},\quad
+ \mathcal V=\{U\}\cup\{C_i:i\in\calM\}.
+\end{equation}
+The reference papers write these node sets as $C,D,V$; the
+calligraphic typography here avoids confusion with the actual drilling
+node $D$ and cost nodes $C_i$.  For each $n\in\mathcal C\cup\mathcal D$,
+$S_n$ is its finite state space and $s_n\in S_n$ a realization or
+chosen state.  For a set of nodes $N$, write
+$S_N:=\prod_{n\in N}S_n$ and $s_N=(s_n)_{n\in N}$.
+A full path $s=(s_n)_{n\in\mathcal C\cup\mathcal D}$ belongs to
+$\mathcal S:=S_{\mathcal C\cup\mathcal D}$, and its product of chance
+probabilities is
+\begin{equation}\label{eq:pathprob}
+\begin{split}
+ p(s)
+  &:=\prod_{c\in\mathcal C}\Prob(s_c\mid s_{I(c)})\\
+  &=\Prob(s_O)\,\Prob(s_S\mid s_O)
+     \prod_{i\in\calM}
+     \Prob(s_{R_i}\mid s_S,s_{T_i}).
+\end{split}
+\end{equation}
+The factorization follows from the arcs of the influence diagram,
+not from an unconditional independence assumption on the reports.
+Write $\mathcal S^>:=\{s\in\mathcal S:p(s)>0\}$.  For any path
+segment $s_N\in S_N$, define the extension set, as in the DP framework,
+\begin{equation}\label{eq:extension}
+ E(s_N):=\{s\in\mathcal S:(s_n)_{n\in N}=s_N\},\qquad
+ E^>(s_N):=E(s_N)\cap\mathcal S^>.
+\end{equation}
+This is the path-extension operator used in the source paper.  The
+notation $E(s_N)$ is also used when $N$ is clear from the segment.
+
+For the compact policy formulation and the IR-B\&B discussion, it is
+useful to abbreviate the same conditional probabilities as
+\begin{equation}\label{eq:prior}
+\begin{aligned}
+ p_o&:=\Prob(O=o),\qquad
+ q(s\mid o):=\Prob(S=s\mid O=o),\\
+ \theta_{os}&:=p_o q(s\mid o),\qquad
+ \rho_i(r\mid s):=\Prob(R_i=r\mid S=s,T_i=\mathrm{yes}).
+\end{aligned}
+\end{equation}
+Here and below, the lower-case $o,s,r$ abbreviate states of nodes
+$O,S,R_i$; they should not be confused with a complete path
+$s\in\mathcal S$.  We use $\calR:=\{\mathrm{dry},\mathrm{medium},
+\mathrm{wet}\}$ for the possible results of a commissioned test.
+The report kernel satisfies
+\begin{equation}\label{eq:na-kernel}
+\begin{aligned}
+ &\Prob(R_i=\mathrm{N/A}\mid S=s,T_i=\mathrm{no})=1,\\
+ &\Prob(R_i=\mathrm{N/A}\mid S=s,T_i=\mathrm{yes})=0.
+\end{aligned}
+\end{equation}
+All other report probabilities conditional on $T_i=\mathrm{no}$ vanish.
+
+\subsection{Nonanticipative policies and expected utility}\label{sec:policy}
+According to the framework in~\cite{Terho2026}, a local decision
+strategy for node $d\in\mathcal D$ is a mapping
+$Z_d:S_{I(d)}\to S_d$.  Its binary representation is
+$z(s_d\mid s_{I(d)})=1$ exactly when strategy $Z_d$ selects
+$s_d$ at the information state $s_{I(d)}$, and it satisfies
+\begin{equation}\label{eq:localstrategy}
+ \sum_{s_d\in S_d}z(s_d\mid s_{I(d)})=1
+ \quad(d\in\mathcal D,\ s_{I(d)}\in S_{I(d)}).
+\end{equation}
+By~\eqref{eq:infosets}, each $Z_{T_i}$ is a constant choice, while
+$Z_D$ depends on the report vector $(s_{R_1},\ldots,s_{R_M})$.
+Thus a feasible global strategy $Z=(Z_d)_{d\in\mathcal D}$ is
+represented equivalently by a commissioned test set
+$A\subseteq\calM$ and a drilling policy
+$d_A:\calR^A\to\{0,1\}$, where $1$ denotes $\mathrm{yes}$.
+Uncommissioned tests appear only as $\mathrm{N/A}$ in the information
+state of $D$.  The nonanticipativity condition is
+\begin{equation}\label{eq:nonanticipativity}
+ s_{I(D)}=s'_{I(D)}\;\Longrightarrow\;
+ Z_D(s_{I(D)})=Z_D(s'_{I(D)})
+ \quad\text{for all }s,s'\in\mathcal S^>.
+\end{equation}
+It ensures that the terminal choice cannot depend on the unobserved
+states $O$ and $S$ once the reports are fixed.  This property is built
+into the domain of the function $d_A$ and will be enforced in the MILP
+through one local policy variable per report-information state.
+
+For fixed $A$, the joint (not posterior) probability of the oil state
+and the observed report vector is
+\begin{equation}\label{eq:joint}
+ q_A(o,r_A):=\Prob(O=o,R_A=r_A\mid T=t(A))
+ =\sum_{s\in S_S}\theta_{os}
+   \prod_{i\in A}\rho_i(r_i\mid s),
+\end{equation}
+Here $t(A)$ is the test-decision vector with $t_i(A)=\mathrm{yes}$
+for $i\in A$ and $t_i(A)=\mathrm{no}$ otherwise.
+The associated marginal and posterior probabilities are
+$p_A(r_A)=\sum_{o\in S_O}q_A(o,r_A)$ and
+$\Prob(O=o\mid R_A=r_A,A)=q_A(o,r_A)/p_A(r_A)$ whenever
+$p_A(r_A)>0$.  The empty product is one.
+
+Using the physical utilities~\eqref{eq:localutil}, expected net profit
+for a feasible policy $(A,d_A)$ is
+\begin{equation}\label{eq:policyvalue}
+ V(A,d_A)
+  =\sum_{r_A\in\calR^A}\sum_{o\in S_O}
+       q_A(o,r_A)\,(v_o-k)\,d_A(r_A)
+       -\sum_{i\in A}c_i.
+\end{equation}
+This explicitly separates report-dependent operations from the
+upfront cost of testing.  For a fixed $A$, conditional optimization of
+the drilling decision reduces to
+\begin{align}
+ H_A(r_A)&:=\sum_{o\in S_O}q_A(o,r_A)(v_o-k),\label{eq:H}\\
+ d_A^*(r_A)&\in\arg\max_{d\in\{0,1\}}d\,H_A(r_A).\label{eq:drill}
+\end{align}
+An admissible tie rule sets $d_A^*(r_A)=0$ when $H_A(r_A)=0$.
+The optimal gross operational value and the original optimization
+problem are, respectively,
+\begin{align}
+ F(A)&:=\sum_{r_A\in\calR^A}\max\{0,H_A(r_A)\},\label{eq:oracle}\\
+ V^{\mathrm{phys},*}
+ &=\max_{A\subseteq\calM}\left\{F(A)-\sum_{i\in A}c_i\right\}
+ =\max_{A\subseteq\calM}\max_{d_A}V(A,d_A).\label{eq:master}
+\end{align}
+Equation~\eqref{eq:master} is a \emph{policy-optimization problem},
+not yet a MILP.  Extra information weakly expands the class of feasible
+drilling strategies, so $F(B)\ge F(A)$ whenever $A\subseteq B$.
+The gross value of information is $F(A)-F(\varnothing)$, but testing
+is profitable relative to no testing only when this exceeds
+$\sum_{i\in A}c_i$.
+
+\subsection{Mixed-Integer Linear Programming Formulation}\label{sec:milp}
+\subsubsection{Utility normalization and full-path coefficients}
+The RDP formulation in Terho et al.~\cite[Eq.~(8)]{Terho2026}
+assumes strictly positive utility at each value node.  This is
+important: the model uses inequalities rather than equalities to
+activate the observation variables.  The physical utilities in
+\eqref{eq:localutil} may be zero or negative, so they must not be
+inserted into this formulation without checking the assumption.
+
+For each value node $v\in\mathcal V$, choose a state-independent
+constant $\delta_v$ such that
+$U_v(s_{I(v)}):=U_v^{\mathrm{phys}}(s_{I(v)})+\delta_v>0$
+for all information states.  Let
+\begin{equation}\label{eq:shift}
+ U^{\mathrm{phys}}(s):=
+    \sum_{v\in\mathcal V}U_v^{\mathrm{phys}}(s_{I(v)}),
+ \quad
+ \Delta:=\sum_{v\in\mathcal V}\delta_v,
+ \quad
+ U(s):=U^{\mathrm{phys}}(s)+\Delta.
+\end{equation}
+The symbol $U(s)$ henceforth denotes the \emph{strictly positive
+shifted} total utility used in the MILP, while
+$V^{\mathrm{phys},*}$ always denotes optimal physical net profit.
+The value of $\Delta$ is independent of the chosen policy.  Because
+every complete policy induces a probability distribution of total mass
+one, adding the shifts changes every expected value by exactly
+$\Delta$, without changing the optimal policy.
+
+\subsubsection{Observation variables and RDP model}
+Following the original notation, define the chance nodes observed by
+at least one decision and the full \emph{observation set} as
+\begin{equation}\label{eq:observationset}
+ \mathcal C_I:=\{c\in\mathcal C:\exists d\in\mathcal D,
+                      c\in I(d)\}=\{R_i:i\in\calM\},\qquad
+ \mathcal O:=\mathcal D\cup\mathcal C_I.
+\end{equation}
+This calligraphic $\mathcal O$ corresponds to the observation set
+written $O$ in Terho et al.; it is \emph{not} the chance node $O$
+representing oil content.  Write $s_{\mathcal O}\in S_{\mathcal O}$
+for an observable path segment.  For any segment $s_N$ on nodes
+$N\subseteq\mathcal O$, its observable extension is
+\begin{equation}\label{eq:obs-extension}
+ E_{\mathcal O}(s_N)
+ =\{s'_{\mathcal O}\in S_{\mathcal O}:s'_N=s_N\}.
+\end{equation}
+The coefficient associated with an observable segment is the
+unnormalized expected-utility contribution
+\begin{equation}\label{eq:eucoefficient}
+ \mathbb E_U(s_{\mathcal O})
+ :=\sum_{s\in E(s_{\mathcal O})}p(s)U(s).
+\end{equation}
+This is precisely Eq.~(6) in~\cite{Terho2026}, with the positive
+utility convention above.  It integrates out the latent chance nodes
+$O$ and $S$ rather than introducing a path variable for each of
+their realizations.
+
+The MILP uses the local decision-strategy variables
+$z(s_d\mid s_{I(d)})\in\{0,1\}$ from~\eqref{eq:localstrategy} and
+continuous \emph{observation variables}
+$y(s_{\mathcal O})\in[0,1]$.  The latter aggregate the full-path
+activation variables $x(s)$ of Decision Programming: at an optimum
+with positive utilities, $y(s_{\mathcal O})=1$ precisely for
+observation segments compatible with the chosen policy and having
+positive chance probability.  In the equation below, $d$ ranges
+over $\mathcal D$, $s_d$ over $S_d$, and $h$ over $S_{I(d)}$.
+
+\begin{subequations}\label{eq:rdp}
+\begin{align}
+\max_{z,y}\quad
+ &\sum_{s_{\mathcal O}\in S_{\mathcal O}}
+       \mathbb E_U(s_{\mathcal O})y(s_{\mathcal O})
+             \label{eq:rdpobj}\\
+\text{s.t.}\quad
+ &\sum_{s_d\in S_d}z(s_d\mid h)=1
+       &&\forall d,h,\label{eq:rdpselect}\\
+ &\sum_{s_{\mathcal O}\in E_{\mathcal O}(s_d,h)}
+       y(s_{\mathcal O})
+       \le \Gamma(s_d\mid h)z(s_d\mid h)
+       &&\forall d,s_d,h,\label{eq:rdplink}\\
+ &\sum_{s_{\mathcal O}\in E_{\mathcal O}(s_{\mathcal C_I})}
+       y(s_{\mathcal O})\le 1
+       &&\forall s_{\mathcal C_I}\in S_{\mathcal C_I},\label{eq:rdpobs}\\
+ &z(s_d\mid h)\in\{0,1\}
+       &&\forall d,s_d,h,\label{eq:rdpdomainz}\\
+ &0\le y(s_{\mathcal O})\le1
+       &&\forall s_{\mathcal O}\in S_{\mathcal O}.
+       \label{eq:rdpdomainy}
+\end{align}
+\end{subequations}
+The index sets in the shorthand $\forall d,s_d,h$ are
+$d\in\mathcal D$, $s_d\in S_d$ and $h\in S_{I(d)}$.
+Constraints~\eqref{eq:rdpselect} select exactly one action per
+information state, as in Eq.~(8b) of Terho et al.
+Constraints~\eqref{eq:rdplink} link compatible observation segments
+to the selected local actions (Eq.~(8c)).
+Constraints~\eqref{eq:rdpobs} strengthen the LP relaxation by
+requiring at most one active segment for each vector of observed
+chance states (Eq.~(8d)).  Constraints~\eqref{eq:rdpdomainz} and
+\eqref{eq:rdpdomainy} correspond to Eqs.~(8e)--(8f).
+
+The linking coefficient may be chosen as in Eq.~(4) of
+Terho et al., originally proposed by Hankimaa et al.:
+\begin{equation}\label{eq:gamma}
+\Gamma(s_d\mid h)=\min\left\{
+ |E^>(s_d,h)|,\;
+ \frac{|E(s_d,h)|}
+ {\displaystyle\prod_{j\in\mathcal D\setminus(\{d\}\cup I(d))}|S_j|}
+\right\}.
+\end{equation}
+It is an upper bound on the number of simultaneously active
+full-path variables compatible with $(s_d,h)$; the same value is
+therefore valid for the aggregated observation variables in
+\eqref{eq:rdplink}.  Equation~\eqref{eq:rdp} is the published RDP
+formulation (8a)--(8f), not an alternative big-$M$ MILP.
+
+\subsubsection{Explicit specialization to the oil wildcatter diagram}
+For the diagram in Fig.~2 of Terho et al.,
+$\mathcal O=\{T_1,\ldots,T_M,R_1,\ldots,R_M,D\}$.  Thus
+$s_{\mathcal O}=(t,r,d)$, with
+\begin{equation}\label{eq:oilsegments}
+ t\in\mathcal T:=\prod_{i\in\calM}S_{T_i},\qquad
+ r\in\mathcal Q:=\prod_{i\in\calM}S_{R_i},\qquad
+ d\in S_D.
+\end{equation}
+Here $\mathcal T$ and $\mathcal Q$ are only abbreviations for the
+Cartesian products $S_{\{T_i:i\in\calM\}}$ and
+$S_{\{R_i:i\in\calM\}}$ already defined above; they do not introduce additional random variables.  The
+observation coefficient in~\eqref{eq:eucoefficient} becomes
+\begin{equation}\label{eq:oilEU}
+\begin{aligned}
+ \mathbb E_U(t,r,d)
+ &=\sum_{o\in S_O}\sum_{s\in S_S}
+   p_o\,q(s\mid o)
+   \prod_{i\in\calM}
+     \Prob(R_i=r_i\mid S=s,T_i=t_i)\\[-1pt]
+ &\quad\times\left[
+   \one\{d=\mathrm{yes}\}(v_o-k)
+   -\sum_{i\in\calM}c_i\one\{t_i=\mathrm{yes}\}
+   +\Delta\right].
+\end{aligned}
+\end{equation}
+Consequently, the exact oil-specific version of
+Eqs.~\eqref{eq:rdpselect}--\eqref{eq:rdpdomainy} is
+\begin{subequations}\label{eq:oilrdp}
+\begin{align}
+ \max_{y,z}\quad
+ &\sum_{t\in\mathcal T}\sum_{r\in\mathcal Q}
+     \sum_{d\in S_D}\mathbb E_U(t,r,d)y(t,r,d)
+          \label{eq:oilrdpobj}\\
+ \text{s.t.}\quad
+ &\sum_{t_i\in S_{T_i}}z_i(t_i)=1
+    &&\forall i\in\calM,\label{eq:oilseltest}\\
+ &\sum_{d\in S_D}z_D(d\mid r)=1
+    &&\forall r\in\mathcal Q,\label{eq:oilseldrill}\\
+ &\sum_{t_{-i}}\sum_{r\in\mathcal Q}\sum_{d\in S_D}
+       y(t,r,d)\le\Gamma_i(t_i)z_i(t_i)
+    &&\forall i,t_i,\label{eq:oillinktest}\\
+ &\sum_{t\in\mathcal T}y(t,r,d)
+    \le\Gamma_D(d\mid r)z_D(d\mid r)
+    &&\forall r,d,\label{eq:oillinkdrill}\\
+ &\sum_{t\in\mathcal T}\sum_{d\in S_D}y(t,r,d)\le1
+    &&\forall r\in\mathcal Q,\label{eq:oilobs}\\
+ &z_i(t_i),z_D(d\mid r)\in\{0,1\}
+    &&\forall i,t_i,r,d,\label{eq:oildomainz}\\
+ &0\le y(t,r,d)\le1
+    &&\forall t,r,d.\label{eq:oildomainy}
+\end{align}
+\end{subequations}
+In~\eqref{eq:oillinktest}, $t_{-i}$ ranges over all choices for
+tests $j\ne i$, with the displayed $t_i$ held fixed.
+The short symbols $z_i(t_i)$ and $z_D(d\mid r)$ mean, respectively,
+$z(t_i\mid\varnothing)$ for node $T_i$ and $z(d\mid r)$ for
+node $D$; similarly $\Gamma_i(t_i)=\Gamma(t_i\mid\varnothing)$
+and $\Gamma_D(d\mid r)=\Gamma(d\mid r)$.
+The index domains are inherited from~\eqref{eq:oilsegments}.
+Thus the last two constraints are precisely the domains required for
+all decision and observation variables.
+
+The size of~\eqref{eq:oilrdp} is a useful structural cross-check.
+There are $2M+2\cdot4^M$ binary strategy variables and
+$2\cdot8^M$ continuous observation variables.  Counting
+\eqref{eq:oilseltest}--\eqref{eq:oilobs} yields
+$3M+4\cdot4^M$ linear constraints, excluding variable bounds.
+For example, $M=1,2,3,4,5$ give $19,70,265,1036,4111$
+constraints and $26,164,1158,8712,67594$ variables, matching
+the corresponding published counts in
+\cite[Table~6]{Terho2026} and the campaign logs for the model
+labeled \emph{Corrected}.  Coincidence of model dimensions is
+consistent with the implementation of~\eqref{eq:oilrdp} but does
+not establish equality of every coefficient or constraint.
+
+\subsubsection{Equivalence and recovery of a decision strategy}
+The equivalence with the full-path DP formulation is established by
+Propositions~2--4 in Terho et al.~\cite{Terho2026}; the strengthened
+observation inequality~\eqref{eq:rdpobs} is validated by their
+Proposition~5.  The correspondence is particularly transparent for
+the oil diagram.  Starting from any feasible $(A,d_A)$ in
+\eqref{eq:policyvalue}, select
+\begin{equation}\label{eq:recoverz}
+ \begin{gathered}
+ z_i(\mathrm{yes})=\one\{i\in A\},\quad
+ z_i(\mathrm{no})=\one\{i\notin A\},\\
+ z_D(\mathrm{yes}\mid r)=d_A(r_A),\quad
+ z_D(\mathrm{no}\mid r)=1-d_A(r_A)
+ \quad\text{on reachable report vectors }r.
+ \end{gathered}
+\end{equation}
+For unreachable report vectors, any local action may be selected.
+Choose $y(t,r,d)=1$ for a segment compatible with this strategy
+and with positive chance probability, and zero otherwise.  The
+resulting observation assignment satisfies all model constraints.
+By the path aggregation identity in Proposition~2, its objective equals
+\begin{equation}\label{eq:shiftedvalue}
+ \sum_{t,r,d}\mathbb E_U(t,r,d)y(t,r,d)
+   =V(A,d_A)+\Delta.
+\end{equation}
+Conversely, the binary $z$ variables of any RDP solution obeying
+\eqref{eq:rdpselect} define a complete nonanticipative policy.
+For each fixed binary $z$, there is at most one compatible
+observation segment per report vector; the linking constraints
+force all incompatible $y$ variables to zero.  The coefficients of
+compatible \emph{positive-probability} segments are strictly positive
+after~\eqref{eq:shift}. Therefore, maximizing the objective sets
+their $y$ variables to one. The resulting objective is again the
+expected shifted utility of the policy. It follows that
+\begin{equation}\label{eq:rdprelation}
+ V_{\mathrm{RDP}}^*=V^{\mathrm{phys},*}+\Delta,
+ \qquad
+ \operatorname*{argmax}_{Z}V_{\mathrm{RDP}}(Z)
+ =\operatorname*{argmax}_{Z}V^{\mathrm{phys}}(Z).
+\end{equation}
+This argument proves \emph{equality of optimal values and recoverable
+optimal policies}; it does not claim that every feasible fractional
+$y$ is a physical distribution of paths.  In particular, a reported
+MILP objective is directly comparable with the IR-B\&B objective
+only after subtracting the known constant $\Delta$ (or if both
+methods have already been reported on the physical scale).
+
+\subsubsection{The campaign's \emph{Corrected} implementation}
+The published formulation is~\eqref{eq:rdp}, and its
+specialization to oil is~\eqref{eq:oilrdp}.  The computational campaign
+labels its CPLEX comparator \emph{Corrected}; its recorded model sizes
+match precisely those predicted above at all constructed sizes
+$M=1,\ldots,7$.  However, the campaign's actual source defining the
+variables, coefficient calculation, big-$M$ values and policy
+recovery was not present among the attached materials.  Model counts,
+solver status and recovered objective values do not establish
+constraint-by-constraint identity.  We therefore do not ascribe
+unverified implementation changes to Terho et al.
+
+{\color{BrickRed}\emph{[TODO: inspect the oil-specific \texttt{Corrected}
+source and compare its variables, utility coefficients, big-$M$ values,
+observation inequalities and recovery procedure against
+Eqs.~\eqref{eq:rdp} and~\eqref{eq:oilrdp}.  Verify how the
+instance-level shift is constructed and removed.  Document any
+modified or additional constraints explicitly before presenting them
+as a correction of published RDP.]}}
+
+\subsection{Consistency with the IR-B\&B evaluation}\label{sec:model-irbb}
+The policy objective~\eqref{eq:master} is a \emph{maximization} of
+physical net profit.  The IR-B\&B oracle evaluates $F(A)$ and
+subtracts $c(A)$; hence a feasible testing policy yields a
+\emph{lower} bound, whereas the information relaxation provides an
+\emph{upper} bound.  The RDP MILP maximizes the shifted utility but
+encodes exactly the same policy optimization after subtracting
+$\Delta$, under the assumptions used above.  Equations
+\eqref{eq:prior}--\eqref{eq:master} retain the compact symbols needed
+by the IR-B\&B section and are simply an oil-specific evaluation of
+the policy objective encoded by the generic $z$ variables.
+
+\section{Exact information-relaxation branch-and-bound}\label{sec:algorithm}
+We solve the testing-portfolio problem~\eqref{eq:master} by a specialized, exact information-relaxation branch-and-bound algorithm (IR-B\&B). The search branches only on the \emph{ex-ante test-selection decisions}; for each fixed testing portfolio, the optimal contingent drilling rule is obtained directly from~\eqref{eq:drill}. The description below follows the specialized Oil Wildcatter implementation summarized in \texttt{algorithms.md}, rather than a general-purpose influence-diagram solver. In particular, no MILP or general policy enumeration is solved at an IR-B\&B node.
+
+\subsection{Search-tree structure and branching strategy}\label{sec:branching}
+A search node is a pair $P=(A_1^P,A_0^P)$ of disjoint subsets of $\calM$: tests in $A_1^P$ must be commissioned, while those in $A_0^P$ are forbidden. The remaining tests are free, $C^P:=\calM\setminus(A_1^P\cup A_0^P)$. Thus the node represents the family of feasible completions
+\begin{equation}\label{eq:nodefeas}
+ \mathscr{A}(P):=\{A\subseteq\calM:A_1^P\subseteq A\subseteq\calM\setminus A_0^P\}.
+\end{equation}
+The root is $(\varnothing,\varnothing)$. For a free test $j\in C^P$, binary branching generates
+\begin{equation}\label{eq:children}
+ P^{+j}=(A_1^P\cup\{j\},A_0^P),\qquad
+ P^{-j}=(A_1^P,A_0^P\cup\{j\}).
+\end{equation}
+These children partition $\mathscr A(P)$; the algorithm explores nodes in depth-first order, visiting the inclusion child before the exclusion child.
+
+The \emph{allowed} or optimistic portfolio is
+\begin{equation}\label{eq:completion}
+ \bar A(P):=\calM\setminus A_0^P=A_1^P\cup C^P.
+\end{equation}
+Once a node has survived bound-based pruning, the branching test is selected by the loss in optimal \emph{operational} value incurred when its report is removed from the allowed portfolio:
+\begin{equation}\label{eq:branchscore}
+ \Delta_j(P):=F\bigl(\bar A(P)\bigr)
+          -F\bigl(\bar A(P)\setminus\{j\}\bigr)\ge 0,
+ \qquad
+ j^*\in\arg\max_{j\in C^P}\Delta_j(P).
+\end{equation}
+The score is a marginal information value \emph{before} testing costs; the test cost does not enter the implemented branching score. Ties are broken deterministically. Consequently, the first test branched at the root is the one with the largest loss $F(\calM)-F(\calM\setminus\{j\})$, not necessarily test 1. The implementation specification does not fix the exact deterministic tie-breaking convention; this detail requires source-level confirmation.
+
+\subsection{Exact evaluation of a testing portfolio}\label{sec:subprob}
+The evaluation oracle receives a fixed set $A\subseteq\calM$ of commissioned tests. For every feasible report tuple $r_A\in\calR^A$, it computes the unnormalized expected drilling margin, as already defined in~\eqref{eq:H},
+\begin{equation}\label{eq:oraclemargin}
+ H_A(r_A)
+ =\sum_{o\in S_O}\sum_{s\in S_S}
+   \theta_{os}\left(\prod_{i\in A}\rho_i(r_i\mid s)\right)(v_o-k),
+\end{equation}
+and selects an optimal decision independently for that report tuple:
+\begin{equation}\label{eq:oracledrill}
+ d_A^*(r_A)\in\arg\max_{d\in\{0,1\}}d\,H_A(r_A).
+\end{equation}
+The resulting exact optimal operating value, excluding acquisition costs, is
+\begin{equation}\label{eq:oraclevalue}
+ F(A)=\sum_{r_A\in\calR^A}\max\{0,H_A(r_A)\},
+ \qquad V(A)=F(A)-c(A),\quad c(A):=\sum_{i\in A}c_i.
+\end{equation}
+This oracle also determines the complete contingent drilling rule $d_A^*$ for the observed reports in $A$. The states of uncommissioned tests are fixed to $\mathrm{N/A}$ and do not define additional observable histories. The implementation uses exact rational evaluations of the input probabilities and utilities and does not construct RDP observation or policy variables.
+
+For $|A|=k$ and three possible reports per commissioned test, the oracle processes at most $3^k$ report tuples, each requiring a comparison between \emph{drill} and \emph{do not drill}. Computing~\eqref{eq:oraclemargin} directly entails a sum over $|S_O|\,|S_S|=9$ hidden-state pairs (and a product of $k$ report likelihoods). Hence its straightforward arithmetic complexity is $O\bigl(3^k\,|S_O|\,|S_S|\max\{1,k\}\bigr)$, apart from the cost of exact rational arithmetic. Crucially, the oracle does \emph{not} enumerate the $2^{3^k}$ possible complete binary drilling rules: the terminal decisions are separable across report tuples. At a search node, only the portfolios needed for the feasible candidate, the optimistic bound, and possibly the branching scores are evaluated; the node does not fix or enumerate a single realized report tuple.
+
+\subsection{Lower and upper bounds}\label{sec:bounds}
+Define the constrained optimum in a search node by
+\begin{equation}\label{eq:nodesubprob}
+ V(P):=\max_{A\in\mathscr{A}(P)}\bigl\{F(A)-c(A)\bigr\}.
+\end{equation}
+We first recall the monotonicity property underlying the information relaxation.
+\begin{lemma}[Monotonicity of operating value]\label{lem:monotone}
+If $A\subseteq B\subseteq\calM$, then $F(A)\le F(B)$.
+\end{lemma}
+\begin{proof}
+Every drilling rule based on $r_A$ can also be implemented when $r_B$ is observed: simply ignore the reports from $B\setminus A$. Thus the feasible class of drilling rules with reports $r_B$ contains that with reports $r_A$. Since $F$ excludes testing costs, optimizing with additional information cannot decrease the gross operating value.
+\end{proof}
+
+At node $P$, the specialized algorithm first evaluates the \emph{required} portfolio $A_1^P$. It is a feasible completion and provides the incumbent candidate and local lower bound
+\begin{equation}\label{eq:lower}
+ \boxed{\operatorname{LB}(P)=F(A_1^P)-c(A_1^P).}
+\end{equation}
+In contrast, the node upper bound assumes that the decision maker may observe the reports of \emph{every} test not yet forbidden, while paying only for required tests:
+\begin{equation}\label{eq:upper}
+ \boxed{\operatorname{UB}(P)=F\bigl(\bar A(P)\bigr)-c(A_1^P).}
+\end{equation}
+For any feasible completion $A\in\mathscr A(P)$, $A_1^P\subseteq A\subseteq\bar A(P)$. Since test costs are nonnegative,
+\begin{equation}\label{eq:boundproof}
+ \underbrace{F(A_1^P)-c(A_1^P)}_{\operatorname{LB}(P)}
+ \ \le\ V(P)\ \le\
+ F\bigl(\bar A(P)\bigr)-c(A_1^P)
+ =\operatorname{UB}(P).
+\end{equation}
+The first inequality follows by feasibility of $A_1^P$; the second follows from monotonicity of $F$ and $c(A)\ge c(A_1^P)$. At a leaf $C^P=\varnothing$, $A_1^P=\bar A(P)$, so the bounds coincide and the exact node optimum is known. Although $\bar A(P)$ itself is also a feasible portfolio, the \emph{implemented} incumbent candidate is $A_1^P$, not $\bar A(P)$.
+
+Let $z^{\rm inc}$ denote the maximum value of $F(A)-c(A)$ among the feasible portfolios evaluated so far. After evaluating $A_1^P$, the algorithm updates $z^{\rm inc}$ and its associated portfolio if this candidate is better. For the unexplored node stack $\mathscr Q$, the global certificate can be expressed as
+\begin{equation}\label{eq:globalbounds}
+ z^{\rm inc}\le V^{\mathrm{phys},*}\le
+ \max\!\left\{z^{\rm inc},\ \max_{P\in\mathscr Q}\operatorname{UB}(P)\right\}.
+\end{equation}
+
+\subsection{Information reuse through portfolio caching}\label{sec:reuse}
+The specialized \texttt{OilEvaluator} maintains a \emph{per-solve portfolio cache}. A portfolio is uniquely identified by its test-selection bit mask, e.g., $m(A)=\sum_{i\in A}2^{i-1}$. The cache memoizes the exact operating value $F(A)$ of an evaluated portfolio. On a cache miss, the oracle evaluates its report tuples and computes the entire optimal drilling rule; on a hit, the stored portfolio evaluation is returned without repeating those calculations. The returned optimal solution is represented by the selected portfolio and a drilling action for each tuple of its observed reports. Neither model coefficients nor cached values are shared across different physical instances.
+
+Reuse is directly induced by the two children in~\eqref{eq:children}:
+\begin{equation}\label{eq:reusechild}
+ \bar A(P^{+j})=\bar A(P),\qquad
+ \bar A(P^{-j})=\bar A(P)\setminus\{j\}.
+\end{equation}
+The inclusion child therefore needs the same optimistic operating value as its parent. Moreover, the evaluation $F(\bar A(P)\setminus\{j^*\})$, computed to score the selected branching test in~\eqref{eq:branchscore}, is precisely the optimistic operating value needed at the exclusion child. Both can be retrieved from the portfolio cache. The required-portfolio value $F(A_1^P)$ may also have been computed at another node, independently of that node's search history.
+
+This is \emph{reuse of whole-portfolio evaluations}; it does not imply that the specialized implementation caches individual conditional report subproblems, marginalizes a parent's stored report table, or reuses general dynamic-programming messages. The documentation establishes the cache at portfolio level but does not enumerate every stored record field. Whether the complete drilling rule is itself retained in each cache entry, rather than reconstructed for the returned policy, remains to be checked against the Julia source. With caching, each of the at most $2^M$ distinct portfolios need be evaluated at most once during a solve, although their evaluations may still be exponentially expensive in the number of selected reports.
+
+\subsection{Pruning and exact optimality certification}\label{sec:pruning}
+A node is pruned precisely when its certified upper bound does not improve upon the incumbent,
+\begin{equation}\label{eq:prune}
+ \operatorname{UB}(P)\le z^{\rm inc}.
+\end{equation}
+The comparison is performed using exact rational values, rather than a floating-point optimality tolerance. If the bound does not justify pruning, the node branches on the free test selected by~\eqref{eq:branchscore}. The algorithm terminates when its depth-first stack is empty. Since each branch partitions the admissible testing portfolios, every discarded subtree is dominated by a feasible incumbent or has been completely explored. The final incumbent is therefore globally optimal for~\eqref{eq:master}, with matching exact lower and upper bounds. For a fixed instance, the method remains exponential in the worst case: a full binary search tree has at most $2^{M+1}-1$ visited nodes, and, without pruning but with portfolio memoization, evaluating all distinct portfolios would involve up to $\sum_{A\subseteq\calM}3^{|A|}=4^M$ report tuples before accounting for hidden-state and rational-arithmetic costs.
+
+\subsection{Algorithmic summary and validation}\label{sec:summary}
+Algorithm~\ref{alg:irbb} summarizes the specialized implementation. The \textsc{Evaluate} routine operates on a full test portfolio, not on a partial assignment of a contingent drilling strategy. The stack is last-in--first-out; pushing the exclusion child first makes the inclusion child the next processed node.
+
+\begin{algorithm}[htbp]
+\caption{Exact IR-B\&B for the extended oil wildcatter problem}\label{alg:irbb}
+\small
+\begin{algorithmic}[1]
+\State $\mathscr K\gets\varnothing$ \Comment{portfolio-mask $\mapsto$ exact $F(A)$}
+\Function{Evaluate}{$A$}
+    \State $m\gets m(A)$
+    \If{$m\notin\mathscr K$}
+      \State Compute $H_A(r_A)$ and $d_A^*(r_A)$ for every $r_A\in\calR^A$
+      \State $\mathscr K[m]\gets\sum_{r_A\in\calR^A}\max\{0,H_A(r_A)\}$
+    \EndIf
+    \State \Return $\mathscr K[m]$
+\EndFunction
+\State $z^{\rm inc}\gets\Call{Evaluate}{\varnothing}$; $A^{\rm inc}\gets\varnothing$
+\State $\mathscr Q\gets[(\varnothing,\varnothing)]$ \Comment{LIFO stack}
+\While{$\mathscr Q\ne\varnothing$}
+    \State $P=(A_1^P,A_0^P)\gets\Call{Pop}{\mathscr Q}$
+    \State $\bar A\gets\calM\setminus A_0^P$; $C\gets\bar A\setminus A_1^P$
+    \State $L\gets\Call{Evaluate}{A_1^P}-c(A_1^P)$
+    \If{$L>z^{\rm inc}$}
+        \State $z^{\rm inc}\gets L$; $A^{\rm inc}\gets A_1^P$
+    \EndIf
+    \State $U\gets\Call{Evaluate}{\bar A}-c(A_1^P)$
+    \If{$U\le z^{\rm inc}$} \State \textbf{continue} \Comment{exact pruning} \EndIf
+    \ForAll{$j\in C$}
+        \State $\Delta_j\gets\Call{Evaluate}{\bar A}-\Call{Evaluate}{\bar A\setminus\{j\}}$
+    \EndFor
+    \State Select $j^*\in\arg\max_{j\in C}\Delta_j$ with deterministic tie-breaking
+    \State \Call{Push}{$\mathscr Q,(A_1^P,A_0^P\cup\{j^*\})$} \Comment{exclude}
+    \State \Call{Push}{$\mathscr Q,(A_1^P\cup\{j^*\},A_0^P)$} \Comment{include first}
+\EndWhile
+\State Recover $d^*_{A^{\rm inc}}$ using~\eqref{eq:oracledrill}
+\State \Return $A^{\rm inc}$, $d^*_{A^{\rm inc}}$, $z^{\rm inc}$
+\end{algorithmic}
+\end{algorithm}
+
+The specialized implementation has been checked against an independent exhaustive portfolio enumerator, and small instances additionally enumerate terminal drilling rules. Its bound validator compares the computed node bounds against exact subtree optima over all $3^M$ required/forbidden/free configurations, including cases with redundant or uninformative tests, deterministic or zero-probability signals, and heterogeneous acquisition costs. These are implementation-level correctness checks, not additional instances in the computational comparison of Section~\ref{sec:results}. The documented solver normally returns the status \texttt{optimal\_exact}, with equal rational lower and upper bounds; size-guard exceptions are not reported as optimality certificates.
+
+\section{Preliminary computational results}\label{sec:results}
+\subsection{Experimental design and validation protocol}
+The core comparison contains $80$ distinct instances, formed by two data sets (\emph{original} and \emph{informative}), $M\in\{1,\dots,8\}$ and five instances per size. An additional summary reports five informative instances at each of $M=10$ and $M=12$, evaluated with IR-B\&B only; it does not include completed observations for $M\in\{14,16,18,20\}$. Each instance is evaluated by IR-B\&B once and by a \emph{Corrected} RDP-type MILP under two configurations: CPLEX-Default (D) and CPLEX-PaperStyle (P). We exclude the uncorrected MILP implementation from the comparison. The available logs identify Julia 1.11.7 and CPLEX 22.1.1, one optimization thread per process, and a 3600-second per-job limit. The recorded campaign resource protocol used up to four concurrent jobs for $M\le3$, two for $M=4$, and one for $M\ge5$, on a 32-GB system with a shared 24-GiB memory budget. {\color{BrickRed}\emph{[TODO: record the exact CPU identifier and source-code commit for the oil runs.]}}
+
+The \emph{original} data set uses the first five seeds published for each $M$ in the associated benchmark repository, but matching seeds alone does not establish numerical identity of all conditional probability tables and utilities. A source-level inspection of the published generator identifies repeated initialization of random streams with the same seed inside loops over conditioning states; this can render geological reports uninformative about oil content. The \emph{informative} data set was introduced to test cases where observations can matter. Without the generating TOML files and decoded policies, the fraction of truly positive-value-of-information instances is not yet independently verified. The source code describing the published test-generation mechanism is given in \cite{Terho2026} and its public companion repository.
+
+For the core campaign, an instance is counted as solved only when the field \texttt{certified\_optimal} is true; a nominal CPLEX status \texttt{OPTIMAL} alone is insufficient. For every reported time, we use the per-run \texttt{elapsed} field, which measures recorded algorithm execution and excludes process startup and the independent validation stage. In the core campaign, times are arithmetic means over \emph{certified} runs of each method; the two added IR-B\&B rows use the optimal-completed-run means supplied in an aggregate summary, without run-level revalidation. ``Nodes'' denotes the average \texttt{milp\_nodes} for CPLEX and \texttt{irbb\_nodes} for IR-B\&B, again restricted to certified runs; these count \emph{different kinds of search trees} and are not directly comparable as measures of equivalent work. For each configuration $c\in\{\mathrm D,\mathrm P\}$, the speedup is the median \emph{per-instance} ratio over jointly certified instances,
+\begin{equation}\label{eq:speedup}
+ \operatorname{Speedup}_c(M)
+ =\operatorname{median}_{i\in\mathcal J_c(M)}
+ \frac{t^{\rm Corrected}_{i,c}}{t^{\rm IR\text{-}B\&B}_{i}},
+\end{equation}
+where $\mathcal J_c(M)$ denotes the matched set. A missing value (--) means that no certified timing pair is available; it is not assigned an arbitrary timeout.
+
+\subsection{Original instances}\label{sec:orig}
+\begin{table}[H]
+\centering
+\begin{threeparttable}
+\caption{Computational results for the original oil wildcatter instances (five per $M$).}\label{tab:orig}
+\setlength{\tabcolsep}{2.5pt}
+{\scriptsize
+\begin{tabular}{r rrrr rrrr rrrr}
+\toprule
+ & \multicolumn{4}{c}{Corrected / CPLEX-Default} & \multicolumn{4}{c}{Corrected / CPLEX-PaperStyle} & \multicolumn{4}{c}{IR-B\&B} \\
+\cmidrule(lr){2-5}\cmidrule(lr){6-9}\cmidrule(l){10-13}
+$M$ & $N_{\rm opt}/5$ & $\bar t$ (s) & $\overline{\#N}$ & $S_\mathrm{D}$
+& $N_{\rm opt}/5$ & $\bar t$ (s) & $\overline{\#N}$ & $S_\mathrm{P}$
+& $N_{\rm opt}/5$ & $\bar t$ (s) & $\overline{\#N}$ & $\overline{\#E}$ \\
+\midrule
+1 & 5/5 & 0.005 & 0 & 0.26 & 5/5 & 0.005 & 2.6 & 0.28 & 5/5 & 0.019 & 1 & 2 \\
+2 & 5/5 & 0.014 & 5.8 & 0.76 & 5/5 & 0.017 & 3.6 & 0.83 & 5/5 & 0.016 & 1 & 2 \\
+3 & 5/5 & 0.056 & 7 & 1.35 & 5/5 & 0.206 & 19.4 & 4.46 & 5/5 & 0.040 & 1 & 2 \\
+4 & 5/5 & 0.282 & 9 & 10.84 & 5/5 & 0.881 & 14.6 & 29.51 & 5/5 & 0.027 & 1 & 2 \\
+5 & 5/5 & 7.466 & 34 & 80.45 & 2/5 & 40.438 & 135.5 & 626.51 & 5/5 & 0.063 & 1 & 2 \\
+6 & 5/5 & 81.631 & 637.4 & 943.90 & 0/5 & -- & -- & -- & 5/5 & 0.091 & 1 & 2 \\
+7 & 1/5 & 1,811.5 & 55 & 13,764.75 & 0/5 & -- & -- & -- & 5/5 & 0.268 & 1 & 2 \\
+8 & 0/5 & -- & -- & -- & 0/5 & -- & -- & -- & 5/5 & 0.400 & 1 & 2 \\
+\bottomrule
+\end{tabular}}
+\begin{tablenotes}[flushleft]\footnotesize
+\item $N_{\rm opt}$ counts only certified optimal solutions. $\bar t$ and $\overline{\#N}$ are arithmetic means over certified runs. CPLEX nodes count internal MILP branch-and-bound nodes; IR-B\&B nodes count test-selection search nodes, while $\overline{\#E}$ counts mean portfolio-oracle evaluations. Speedups $S_{\rm D}$ and $S_{\rm P}$ are medians of instance-matched time ratios, not ratios of table means. ``--'' means no certified run/pair. At $M=5$ only two PaperStyle pairs exist; at $M=7$ only one Default pair exists.
+\end{tablenotes}
+\end{threeparttable}
+\end{table}
+
+\subsection{Informative instances}\label{sec:info}
+\begin{table}[H]
+\centering
+\begin{threeparttable}
+\caption{Computational results for the informative oil wildcatter instances (five per $M$).}\label{tab:info}
+\setlength{\tabcolsep}{2.5pt}
+{\scriptsize
+\begin{tabular}{r rrrr rrrr rrrr}
+\toprule
+ & \multicolumn{4}{c}{Corrected / CPLEX-Default} & \multicolumn{4}{c}{Corrected / CPLEX-PaperStyle} & \multicolumn{4}{c}{IR-B\&B} \\
+\cmidrule(lr){2-5}\cmidrule(lr){6-9}\cmidrule(l){10-13}
+$M$ & $N_{\rm opt}/5$ & $\bar t$ (s) & $\overline{\#N}$ & $S_\mathrm{D}$
+& $N_{\rm opt}/5$ & $\bar t$ (s) & $\overline{\#N}$ & $S_\mathrm{P}$
+& $N_{\rm opt}/5$ & $\bar t$ (s) & $\overline{\#N}$ & $\overline{\#E}$ \\
+\midrule
+1 & 5/5 & 0.100 & 0 & 0.82 & 5/5 & 0.098 & 2 & 0.78 & 5/5 & 0.115 & 3 & 2 \\
+2 & 5/5 & 0.094 & 7 & 0.82 & 5/5 & 0.123 & 6 & 0.90 & 5/5 & 0.128 & 7 & 4 \\
+3 & 5/5 & 0.331 & 24.4 & 1.95 & 5/5 & 0.271 & 37.6 & 1.77 & 5/5 & 0.162 & 12.6 & 8 \\
+4 & 5/5 & 0.599 & 103.6 & 5.16 & 5/5 & 1.026 & 31.2 & 8.56 & 5/5 & 0.113 & 23.4 & 16 \\
+5 & 5/5 & 9.946 & 424.6 & 20.75 & 1/5 & 38.073 & 82 & 101.03 & 5/5 & 0.420 & 39 & 31.4 \\
+6 & 5/5 & 166.426 & 1,811 & 461.46 & 0/5 & -- & -- & -- & 5/5 & 0.633 & 45.4 & 50.4 \\
+7 & 0/5 & -- & -- & -- & 0/5 & -- & -- & -- & 5/5 & 1.159 & 81.8 & 96.8 \\
+8 & 0/5 & -- & -- & -- & 0/5 & -- & -- & -- & 5/5 & 3.670 & 99 & 139.8 \\
+\addlinespace[2pt]
+10 & -- & -- & -- & -- & -- & -- & -- & -- & 5/5 & 55.227 & 182.6 & 294.6 \\
+12 & -- & -- & -- & -- & -- & -- & -- & -- & 5/5 & 891.655 & 239.4 & 489 \\
+\bottomrule
+\end{tabular}}
+\begin{tablenotes}[flushleft]\footnotesize
+\item Definitions match Table~\ref{tab:orig}. Rows $M=1,\ldots,8$ are drawn from the run-level validation campaign; rows $M=10,12$ are additional aggregate IR-B\&B results from the supplied Table~7B summary. For these additional sizes, \emph{Corrected} timings and paired speedups are unavailable (``--''); the uploaded summary reports $5/5$ optimal IR-B\&B runs at each size, but does not provide individual certificates for independent revalidation. Mean oracle evaluations $\overline{\#E}$ are calculated over the five reported completed optimal runs. For $M\in\{14,16,18,20\}$, the summary contains only $0/0$ (no completed results provided), not $0/5$ failures. Missing CPLEX results need not represent timeouts.
+\end{tablenotes}
+\end{threeparttable}
+\end{table}
+
+\subsection{Discussion}\label{sec:discussion}
+On the core $M=1,\ldots,8$ comparison, IR-B\&B certified all $40$ original and all $40$ informative instances. Corrected under CPLEX-Default certified $31/40$ original and $30/40$ informative instances; CPLEX-PaperStyle certified $22/40$ and $21/40$, respectively. All $104$ certified Corrected runs, representing $61$ distinct instances across the two sets, agree with IR-B\&B in the exact reported policy value. Seven additional nominal CPLEX optima were rejected by the policy-validation procedure and are excluded from Tables~\ref{tab:orig}--\ref{tab:info}.
+
+The original set is strikingly easy for IR-B\&B: every instance is certified at the root ($\overline{\#N}=1$ for all $M$), with two recorded oracle evaluations per instance. This is consistent with a no-testing optimum when the test reports carry no information about $O$. It does not, however, by itself prove which policy was selected; recovering test choices and comparing $F(\varnothing)$ with the returned objective would provide a direct check. In the informative core set, mean IR-B\&B search nodes rise from $3$ at $M=1$ to $99$ at $M=8$, indicating a qualitatively different search regime. This supports, but does not replace, direct checks of positive value of information.
+
+Across both sets, Corrected tends to be competitive at very small $M$, but the relative running time rises sharply with size. In the original set at $M=6$, the median matched speedup over CPLEX-Default is about $944\times$; it is about $461\times$ in the informative set. In the original set at $M=7$, the approximately $13{,}765\times$ factor is based on just one jointly certified pair and should not be generalized to all five instances. IR-B\&B remains below $0.4$ seconds on average for original $M=8$ and below $3.7$ seconds for informative $M=8$, whereas no Corrected configuration supplies a certified solution at that size under the campaign resource protocol.
+
+In the supplementary informative runs, IR-B\&B reports $5/5$ optimal completions at both $M=10$ and $M=12$, with mean times of $55.227$ and $891.655$ seconds, mean explored nodes of $182.6$ and $239.4$, and mean oracle evaluations of $294.6$ and $489.0$, respectively. No corrected-MILP run data were supplied for these sizes; hence neither a paired speedup nor objective agreement against CPLEX can be established. These aggregate results extend the reported informative IR-B\&B optimum count to $50/50$, but the ten added runs have not been independently revalidated from run-level logs. The unobserved $M=14,16,18,20$ sizes are not treated as failures.
+
+The relative ease of the original instances means that their extreme IR-B\&B speedups should not be interpreted as a general scaling result for informative decision problems. The informative benchmark is a more discriminating complement, but additional replications and a careful verification of the published generator, conditional distributions, objective normalization, and implementation details are required before claims of reproducibility against the 50-instance-per-size Gurobi study of \cite{Terho2026} can be made. The campaign does provide strong within-instance numerical agreement between the corrected MILP and exact IR-B\&B whenever both yield certified optimal policies.
+
+\begin{thebibliography}{9}
+\bibitem{Salo2022} Salo, A., Andelmin, J., and Oliveira, F. (2022). Decision programming for mixed-integer multi-stage optimization under uncertainty. \emph{European Journal of Operational Research}, 299(2), 550--565. \href{https://doi.org/10.1016/j.ejor.2021.12.013}{doi:10.1016/j.ejor.2021.12.013}.
+\bibitem{Terho2026} Terho, T., Oliveira, F., Salo, A., and Munari, P. (2026). An efficient mixed-integer linear programming formulation for solving influence diagrams. \emph{arXiv preprint} arXiv:2601.08460v2 (22 October 2026). \url{https://arxiv.org/abs/2601.08460}.
+\bibitem{Ma2024} Ma, Z., Kim, Y., Linderoth, J., Luedtke, J. R., and Matthews, L. R. (2024). Probing-enhanced stochastic programming. \emph{arXiv preprint} arXiv:2407.10669. \url{https://arxiv.org/abs/2407.10669}.
+\end{thebibliography}
+
+\end{document}
