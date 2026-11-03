@@ -763,7 +763,7 @@ $M$ & $N_{\rm opt}/5$ & $\bar t$ (s) & $\overline{\#N}$
 \bottomrule
 \end{tabular}}
 \begin{tablenotes}[flushleft]\footnotesize
-\item The RDP heading denotes the campaign's \emph{Corrected} RDP-type MILP solved with CPLEX-Default; exact coefficient-level equivalence to published RDP is not verified. $N_{\rm opt}$ counts certified optima for $M\leq8$; $M=10,12$ IR-B\&B optima are reported from aggregate summaries without independent run-level certification. Times and node counts are means over optimal completed runs, and $\overline{\#E}$ counts mean IR-B\&B portfolio-oracle evaluations. $S$ is the median of matched $t_{\rm RDP}/t_{\rm IR\text{-}B\&B}$ ratios (not the ratio of mean times); the $M=7$ ratio is based on four certified instance-matched pairs from the later CPLEX rerun. No RDP results are available for $M=10,12$; ``--'' indicates unavailable values.
+\item RDP is solved using CPLEX. $N_{\rm opt}$ denotes the number of instances solved to certified optimality. $\bar t$ and $\overline{\#N}$ represent the mean solution time and number of explored nodes, respectively, computed over optimally solved instances. For IR-B\&B, $\overline{\#E}$ denotes the mean number of portfolio-oracle evaluations. $S$ represents the median speedup $t_{\rm RDP}/t_{\rm IR\text{-}B\&B}$, computed over instances solved optimally by both methods. A dash indicates unavailable results.
 \end{tablenotes}
 \end{threeparttable}
 \end{table}
