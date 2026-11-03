@@ -1,0 +1,13 @@
+[paper_code]
+url = "https://github.com/toubinaattori/Decision-Programming-new-formulation.git"
+branch = "main"
+commit = "47d4a32716e9642fb1a04d67cce48204446d597b"
+path = "external/Decision-Programming-new-formulation"
+license = "No license file found in the pinned tree; no redistribution permission assumed."
+
+[decision_programming]
+url = "https://github.com/gamma-opt/DecisionProgramming.jl.git"
+branch = "master"
+commit = "105a25ee898cc806db65d5b475e4f1a613265653"
+path = "external/DecisionProgramming.jl"
+license = "MIT; retain upstream copyright and permission notice."
