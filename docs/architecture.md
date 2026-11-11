@@ -11,12 +11,12 @@ search implementations; experimental runners are not imported by the package.
 | Directory | Responsibility |
 | --- | --- |
 | `src/core` | Search interfaces, finite influence diagrams, policies and partial policy mappings |
-| `src/instances` | Oil model representation and in-memory Oil/maintenance constructors |
+| `src/instances` | Oil model representation, sequential testing policies and in-memory Oil/maintenance constructors |
 | `src/evaluation` | Exact rational Oil oracles, fixed-policy inference and supported structured optimization |
 | `src/relaxations` | Information enlargement that preserves physical kernels and lifted policy fixings |
-| `src/algorithms` | Portfolio probing IR-B&B, enumerative partial-policy IR-B&B and structured variants |
+| `src/algorithms` | Ex-ante/sequential Oil probing IR-B&B, enumerative partial-policy IR-B&B and structured variants |
 | `src/caching` | Exact model/context identity, bounded dictionary storage and dependency-directed snapshots |
-| `src/formulations` | Independent JuMP Oil RDP and runtime adapters to pinned original/corrected source |
+| `src/formulations` | Ex-ante/sequential Oil RDP, shared package RJT and runtime adapters to pinned original/corrected source |
 | `src/utilities` | Optional serialization and environment-record helpers |
 
 `examples` contains small explicit entry points without campaign loops or saved
@@ -29,6 +29,13 @@ ignored `external` directory. `scripts/OriginalSources.jl` accesses upstream
 generator/model definitions and the DecisionProgramming.jl DP/RJT models.
 `scripts/setup_cplex.jl` prepares the optional locked CPLEX environment. These
 are setup/model-access tools, not experiment launchers.
+
+The Oil-specific extension is documented in [sequential_oil.md](sequential_oil.md).
+`scripts/audit_sequential_sources.jl` checks the separate newer source pin and
+small parsed source functions; `scripts/benchmark_sequential_oil.jl` is an
+explicit, fixed M=1,2,3 comparison runner. It saves a new ignored run directory
+and does not touch the older local campaigns. Neither script is loaded when
+importing the package.
 
 Local-only material includes `experiments`, campaign scripts, scheduler tests,
 performance reports, result figures, prototypes, downloaded papers and the

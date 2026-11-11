@@ -12,6 +12,20 @@ Base.@kwdef mutable struct SearchStats
     bound_policy_evaluations::Int = 0
     evaluation_time::Float64 = 0.0
     bound_time::Float64 = 0.0
+    maximum_depth::Int = 0
+    maximum_stack_size::Int = 0
+    bound_evaluations::Int = 0
+    unreachable_decisions_eliminated::Int = 0
+    incumbent_updates::Int = 0
+    evaluation_cache_hits::Int = 0
+    evaluation_cache_misses::Int = 0
+    bound_cache_hits::Int = 0
+    bound_cache_misses::Int = 0
+    pruned_by_primary_bound::Int = 0
+    pruned_by_cost_bound::Int = 0
+    root_certificates::Int = 0
+    root_lower_bound::Any = nothing
+    root_upper_bound::Any = nothing
 end
 
 struct SearchResult{P,T<:Real}

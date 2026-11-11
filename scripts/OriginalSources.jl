@@ -94,40 +94,8 @@ function original_rdp(d)
         upper_bound=objective_bound(model)-d.scaler,status=termination_status(model))
 end
 
-function package_diagram(x::OilInstance; upstream_costs=false, rewards_offset=0)
-    DP=DecisionProgramming
-    diagram=DP.InfluenceDiagram()
-    no,ns=size(x.geology); nr=size(x.reports,3); m=ntests(x)
-    DP.add_node!(diagram,DP.ChanceNode("O",[],string.(1:no)))
-    DP.add_node!(diagram,DP.ChanceNode("S",["O"],string.(1:ns)))
-    for i in 1:m
-        DP.add_node!(diagram,DP.DecisionNode("T$i",[],["yes","no"]))
-        DP.add_node!(diagram,DP.ValueNode("C$i",["T$i"]))
-        DP.add_node!(diagram,DP.ChanceNode("Tr$i",["S","T$i"],["N/A";string.(1:nr)]))
-    end
-    DP.add_node!(diagram,DP.DecisionNode("D",["Tr$i" for i in 1:m],["yes","no"]))
-    DP.add_node!(diagram,DP.ValueNode("P",["O","D"]))
-    DP.generate_arcs!(diagram)
-    p=DP.ProbabilityMatrix(diagram,"O"); p[:]=Float64.(x.prior); DP.add_probabilities!(diagram,"O",p)
-    p=DP.ProbabilityMatrix(diagram,"S"); p[:,:]=Float64.(x.geology); DP.add_probabilities!(diagram,"S",p)
-    for i in 1:m
-        p=DP.ProbabilityMatrix(diagram,"Tr$i")
-        for s in 1:ns
-            p[string(s),"yes",:]=vcat(0.0,Float64.(x.reports[i,s,:]))
-            p[string(s),"no",:]=vcat(1.0,zeros(nr))
-        end
-        DP.add_probabilities!(diagram,"Tr$i",p)
-        u=DP.UtilityMatrix(diagram,"C$i")
-        u[:]=upstream_costs ? [0.0,0.0] : [-Float64(x.costs[i]),0.0]
-        DP.add_utilities!(diagram,"C$i",u)
-    end
-    u=DP.UtilityMatrix(diagram,"P")
-    u[:,"yes"]=Float64.(x.payoff).+rewards_offset
-    u[:,"no"]=fill(Float64(rewards_offset),no)
-    DP.add_utilities!(diagram,"P",u)
-    DP.generate_diagram!(diagram; positive_path_utility=true)
-    diagram
-end
+# Shared constructor; audit options retain their original behavior.
+package_diagram(x::OilInstance; kwargs...) = oil_diagram(x; kwargs...)
 
 function package_solve(x,method; upstream_costs=false,rewards_offset=0)
     start=time_ns()

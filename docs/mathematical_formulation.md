@@ -93,7 +93,7 @@ y[k,d] ≤ z_drill[k,d]
 ```
 
 These are (8b)–(8f) after structural-zero elimination. Gamma for drilling is 1;
-Gamma for a test action is the number of matching report tuples: (8d) bounds
+Gamma for a test action is the number of matching report tuples: (8c) bounds
 their total activation by that number. These need not be the strongest Gamma.
 The coefficient includes the **net** utility plus a constant
 `shift = 1 - min(0,min_o u_drill(o)) + sum_i c_i`, so every possible full-path
@@ -102,6 +102,11 @@ positive-probability tuples. Their physical probability mass is one; subtracting
 the shift recovers the unshifted objective. Structural-zero histories can have
 zero coefficients and arbitrary policy actions without changing physical value.
 No CVaR or general signed-coefficient shortcut is asserted.
+
+The sequential Oil specialization preserves these physical kernels and utility
+conventions while making testing rows depend on prior reports. Its policy
+representation, exact reference, two conservative bounds and their preserved
+policy embeddings are specified in [sequential_oil.md](sequential_oil.md).
 
 ## Partial policies and causal relaxation
 

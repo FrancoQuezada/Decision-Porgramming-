@@ -11,3 +11,9 @@ branch = "master"
 commit = "105a25ee898cc806db65d5b475e4f1a613265653"
 path = "external/DecisionProgramming.jl"
 license = "MIT; retain upstream copyright and permission notice."
+
+[paper_sequential_code]
+url = "https://github.com/toubinaattori/Decision-Programming-new-formulation.git"
+commit = "c8af1afc111f7f2c7ec81105225fa3854d5edf9a"
+path = "external/Decision-Programming-new-formulation-sequential"
+license = "No license grant assumed; inspected as a separate read-only reference, not redistributed."

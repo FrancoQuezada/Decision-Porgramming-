@@ -33,6 +33,13 @@ include("phase3_structured.jl")
 include("phase3_cache.jl")
 include("phase3_incremental.jl")
 include("phase3_edgecases.jl")
+include("sequential_oil.jl")
+include("sequential_irbb_variants.jl")
+if isfile(joinpath(@__DIR__,"..","external","Decision-Programming-new-formulation-sequential","Final codes","oil_new_seq_Gurobi.jl"))
+    include("table3_pipeline.jl")
+else
+    @info "Optional Table 3 source-stream checks require the separate pinned sequential source"
+end
 
 @testset "Enumeration = probing IRBB = RDP on identical instances" begin
     for m in 0:4,seed in (1,11,26),kind in (:informative,:uninformative,:heterogeneous,:redundant)
