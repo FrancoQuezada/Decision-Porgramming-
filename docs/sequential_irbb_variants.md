@@ -1,5 +1,9 @@
 # Sequential Oil IR-B&B variants
 
+The additional `:combined_cir` variant and its exact incremental U/L/C messages
+are documented in [sequential_cir_incremental.md](sequential_cir_incremental.md).
+The four variants below retain their existing implementations and definitions.
+
 These variants remain specific to passive Sequential Oil Wildcatter. They are
 not a general exact algorithm for arbitrary Decision Programming influence
 diagrams and do not establish novelty or computational superiority.

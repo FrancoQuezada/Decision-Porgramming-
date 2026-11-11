@@ -31,7 +31,7 @@ function upper_bound(b::SequentialProbingBound, p::PartialSequentialOilPolicy)
     operating_value(b.evaluator,full_mask(x) & ~sets.forbidden)-test_cost(x,sets.required)
 end
 
-const SEQUENTIAL_IRBB_VARIANTS=(:baseline,:reachability,:cost_aware,:combined)
+const SEQUENTIAL_IRBB_VARIANTS=(:baseline,:reachability,:cost_aware,:combined,:combined_cir)
 
 function sequential_cost_aware_bound(b::SequentialProbingBound,
         p::PartialSequentialOilPolicy)
@@ -238,6 +238,8 @@ function solve_sequential_probing(x::OilInstance; bound=:legacy_nonsequential,
         variant=:baseline,max_rows=24,progress_every=0,progress_io=stderr,time_limit=Inf)
     variant in SEQUENTIAL_IRBB_VARIANTS ||
         throw(ArgumentError("unknown sequential IR-B&B variant: $variant"))
+    variant==:combined_cir && return solve_sequential_cir(x;bound,max_rows,
+        progress_every,progress_io,time_limit)
     variant==:baseline && return solve_sequential_probing_baseline(x;bound,max_rows,
         progress_every,progress_io,time_limit)
     solve_sequential_probing_improved(x;bound,variant,max_rows,progress_every,progress_io,time_limit)

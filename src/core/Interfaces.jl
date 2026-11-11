@@ -26,6 +26,7 @@ Base.@kwdef mutable struct SearchStats
     root_certificates::Int = 0
     root_lower_bound::Any = nothing
     root_upper_bound::Any = nothing
+    cir::Any = nothing
 end
 
 struct SearchResult{P,T<:Real}

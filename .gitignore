@@ -32,6 +32,7 @@
 !/test/sequential_informative_cplex.py
 !/test/sequential_irbb_variants.jl
 !/test/sequential_irbb_ablation.py
+!/test/sequential_cir.jl
 
 !/scripts/
 /scripts/*
@@ -45,6 +46,7 @@
 !/scripts/sequential_cplex_extension/
 !/scripts/sequential_informative_cplex/
 !/scripts/sequential_irbb_ablation/
+!/scripts/sequential_cir/
 
 !/environments/
 /environments/*
@@ -70,6 +72,7 @@
 !/docs/sequential_cplex_benchmark.md
 !/docs/sequential_informative_cplex_benchmark.md
 !/docs/sequential_irbb_variants.md
+!/docs/sequential_cir_incremental.md
 
 # Preserve the manuscript already hosted in the GitHub repository.
 !/paper/

@@ -35,6 +35,7 @@ include("phase3_incremental.jl")
 include("phase3_edgecases.jl")
 include("sequential_oil.jl")
 include("sequential_irbb_variants.jl")
+include("sequential_cir.jl")
 if isfile(joinpath(@__DIR__,"..","external","Decision-Programming-new-formulation-sequential","Final codes","oil_new_seq_Gurobi.jl"))
     include("table3_pipeline.jl")
 else
